@@ -1,9 +1,10 @@
 # ---------------------------
-# Visual Studio
+# Visual Studio / IDE
 # ---------------------------
 .vs/
-*.user
+.vscode/
 *.suo
+*.user
 *.userosscache
 *.sln.docstates
 *.VC.db
@@ -11,7 +12,7 @@
 ipch/
 
 # ---------------------------
-# Build output / CMake
+# CMake / Build output
 # ---------------------------
 out/
 build/
@@ -20,10 +21,15 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+*.cmake
 *.ninja
 *.ninja_deps
 *.ninja_log
 compile_commands.json
+Testing/
+CTestTestfile.cmake
+DartConfiguration.tcl
+install_manifest.txt
 
 # ---------------------------
 # Qt / auto-generated
@@ -33,7 +39,6 @@ moc_*.h
 ui_*.h
 qrc_*.cpp
 *_autogen/
-*_autogen/*
 
 # ---------------------------
 # Binaries / intermediate
@@ -46,20 +51,23 @@ qrc_*.cpp
 *.dll
 *.pdb
 *.ilk
+*.idb
 *.exp
-
-# ---------------------------
-# Logs / exports (optional)
-# ---------------------------
-analysis_log.csv
 *.log
 *.tmp
+
+# ---------------------------
+# Logs / exports
+# ---------------------------
+analysis_log.csv
+
+# ---------------------------
+# Generated test data
+# ---------------------------
+test_*.txt
 
 # ---------------------------
 # OS
 # ---------------------------
 .DS_Store
 Thumbs.db
-
-# Generated test data files
-test_*.txt
