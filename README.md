@@ -5,9 +5,7 @@ Das Tool liest `.txt`-Dateien bis 50 MB zeilenweise ein und berechnet Wortstatis
 Worthäufigkeiten, Bigramme, Wortlängenverteilung und lexikalische Dichte – optional mit
 Stoppwortfilter für Deutsch und Englisch.
 
-<!-- Screenshot: docs/screenshot.png anlegen und die folgende Zeile einkommentieren
-![Screenshot der Anwendung](docs/screenshot.png)
--->
+![Ergebnisansicht nach einer Analyse mit Top-10-Wörtern](TextAnalysisTool/docs/UI_Ergebnis_TopWoerter.png)
 
 ## Funktionen
 
