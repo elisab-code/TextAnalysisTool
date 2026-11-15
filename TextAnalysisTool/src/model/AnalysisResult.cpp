@@ -1,13 +1,11 @@
 #include "model/AnalysisResult.h"
 
-/* Counts every token(including stopwords).
-* Needed for lexical density / stopword ratio.
-* updates the "all tokens" counter
-*/
-void AnalysisResult::addRawToken(const QString & token)
+// Counts every token (including stopwords).
+// Needed for lexical density / stopword ratio.
+void AnalysisResult::addRawToken(const QString& token)
 {
     if (!token.isEmpty()) {
-        ++m_totalTokensAll;   // includes stopwords
+        ++m_totalTokensAll;
     }
 }
 
@@ -15,18 +13,29 @@ void AnalysisResult::addRawToken(const QString & token)
 // Called once per token during streaming analysis.
 void AnalysisResult::addToken(const QString& token)
 {
-    // Ignore empty tokens
-    if (!token.isEmpty()) {
-
-        // Increase global token counter (non-stopwords only)
-        ++m_totalTokensNonStop;
-
-        // Increase frequency count for this token.
-        ++m_freq[token];
+    if (token.isEmpty()) {
+        return;
     }
+
+    // Count token even if we later cannot store a new key (limit reached).
+    ++m_totalTokensNonStop;
+
+    auto it = m_freq.find(token);
+    if (it != m_freq.end()) {
+        ++it.value();
+        return;
+    }
+
+    // New key: enforce limit.
+    if (m_freq.size() >= kMaxUniqueTokens) {
+        m_tokenLimitReached = true;
+        return;
+    }
+
+    m_freq.insert(token, 1);
 }
 
-// Returns total number of processed tokens.
+// Returns total number of processed tokens (non-stopwords).
 int AnalysisResult::totalTokens() const
 {
     return m_totalTokensNonStop;
@@ -47,7 +56,20 @@ const QHash<QString, int>& AnalysisResult::frequencies() const
 // Adds a bigram consisting of two consecutive tokens.
 void AnalysisResult::addBigram(const QString& a, const QString& b)
 {
-    ++m_bigramFreq[a + " " + b];
+    const QString key = a + " " + b;
+
+    auto it = m_bigramFreq.find(key);
+    if (it != m_bigramFreq.end()) {
+        ++it.value();
+        return;
+    }
+
+    if (m_bigramFreq.size() >= kMaxUniqueBigrams) {
+        m_bigramLimitReached = true;
+        return;
+    }
+
+    m_bigramFreq.insert(key, 1);
 }
 
 // Updates the word-length histogram.
@@ -77,9 +99,25 @@ qint64 AnalysisResult::charCount() const
 {
     return m_charCount;
 }
+
 // setters for JSON load
 void AnalysisResult::setTotalTokensAll(int n) { m_totalTokensAll = n; }
 void AnalysisResult::setTotalTokensNonStop(int n) { m_totalTokensNonStop = n; }
-void AnalysisResult::setFrequencies(const QHash<QString, int>& f) { m_freq = f; }
-void AnalysisResult::setBigramFrequencies(const QHash<QString, int>& b) { m_bigramFreq = b; }
+
+void AnalysisResult::setFrequencies(const QHash<QString, int>& f)
+{
+    m_freq = f;
+    if (m_freq.size() > kMaxUniqueTokens) {
+        m_tokenLimitReached = true;
+    }
+}
+
+void AnalysisResult::setBigramFrequencies(const QHash<QString, int>& b)
+{
+    m_bigramFreq = b;
+    if (m_bigramFreq.size() > kMaxUniqueBigrams) {
+        m_bigramLimitReached = true;
+    }
+}
+
 void AnalysisResult::setWordLengthHistogram(const QHash<int, int>& h) { m_lengthHist = h; }

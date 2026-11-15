@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QString>
 #include <QMetaType>
+#include <QtGlobal>
 
 /**
  * Stores all computed statistical results of the analysis.
@@ -12,46 +13,59 @@
  *  - Distinguishes between:
  *      (1) all tokens (incl. stopwords)  -> for lexical density / ratios
  *      (2) non-stop tokens only          -> for unigram/bigram stats
+ *
+ * Safety/robustness:
+ *  - Enforces hard limits for UNIQUE tokens/bigrams to prevent memory explosions
+ *    on pathological inputs.
+ *  - Existing keys are still counted; only *new* keys are rejected once the limit is hit.
  */
 class AnalysisResult
 {
 public:
-    // counts every token (including stopwords), but does NOT store frequencies
+    // Hard limits for unique keys (memory safety).
+    static constexpr int kMaxUniqueTokens = 1'000'000;
+    static constexpr int kMaxUniqueBigrams = 1'000'000;
+
+    // Counts every token (including stopwords), does not store frequencies.
     void addRawToken(const QString& token);
 
-    // Counts only NON-stopwords and updates unigram frequencies
+    // Counts only non-stopwords and updates unigram frequencies.
     void addToken(const QString& token);
 
-    // Adds a bigram consisting of two consecutive NON-stop tokens
+    // Adds a bigram consisting of two consecutive non-stop tokens.
     void addBigram(const QString& a, const QString& b);
 
-    // Updates histogram for word lengths (you currently call this for all tokens)
+    // Updates histogram for word lengths.
     void addWordLength(int len);
 
-    // Non-stop token count (after stopword filtering)
+    // Non-stop token count (after stopword filtering).
     int totalTokens() const;
 
-    // token count including stopwords
+    // Token count including stopwords.
     int totalTokensAll() const;
 
-    // character count of the processed document (sum of line lengths)
+    // Character count of the processed document (sum of line lengths).
     void setCharCount(qint64 n);
     qint64 charCount() const;
 
-    // setters for load JSON (read-only pipeline remains unchanged)
+    // Limit flags (true if at least one new key had to be dropped due to limits).
+    bool tokenLimitReached() const { return m_tokenLimitReached; }
+    bool bigramLimitReached() const { return m_bigramLimitReached; }
+
+    // Setters for JSON load (read-only pipeline remains unchanged).
     void setTotalTokensAll(int n);
     void setTotalTokensNonStop(int n);
     void setFrequencies(const QHash<QString, int>& f);
     void setBigramFrequencies(const QHash<QString, int>& b);
     void setWordLengthHistogram(const QHash<int, int>& h);
 
-    // Unigram frequency map (non-stop tokens)
+    // Unigram frequency map (non-stop tokens).
     const QHash<QString, int>& frequencies() const;
 
-    // Bigram frequency map ("word1 word2" -> count)
+    // Bigram frequency map ("word1 word2" -> count).
     const QHash<QString, int>& bigramFrequencies() const;
 
-    // Word-length histogram (length -> frequency)
+    // Word-length histogram (length -> frequency).
     const QHash<int, int>& wordLengthHistogram() const;
 
 private:
@@ -63,5 +77,9 @@ private:
     QHash<QString, int> m_freq;       // unigram frequencies (non-stop)
     QHash<QString, int> m_bigramFreq; // bigram frequencies (non-stop)
     QHash<int, int> m_lengthHist;     // word length histogram
+
+    bool m_tokenLimitReached = false;
+    bool m_bigramLimitReached = false;
 };
+
 Q_DECLARE_METATYPE(AnalysisResult)
