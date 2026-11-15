@@ -11,5 +11,8 @@ endif()
 
 project(TextAnalysisTool LANGUAGES CXX)
 
+# Register tests at the top level so `ctest --test-dir build` finds them
+enable_testing()
+
 # Build the actual Qt app in the subfolder
 add_subdirectory(TextAnalysisTool)

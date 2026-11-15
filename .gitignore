@@ -71,3 +71,8 @@ test_*.txt
 # ---------------------------
 .DS_Store
 Thumbs.db
+
+# ---------------------------
+# Local CMake presets (machine-specific paths, e.g. Qt location)
+# ---------------------------
+CMakeUserPresets.json
