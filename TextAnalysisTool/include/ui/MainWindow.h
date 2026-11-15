@@ -1,6 +1,9 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QElapsedTimer>
+#include <QFutureWatcher>
+
 #include "model/AnalysisResult.h"
 
 class QLineEdit;
@@ -63,19 +66,20 @@ private:
     QLabel* m_lblCharCount = nullptr;
     QLabel* m_lblWordCount = nullptr;
     QLabel* m_lblUniqueCount = nullptr;
-
-    // IMPORTANT: match visible UI parameters
-    QLabel* m_lblAvgWordLen = nullptr;    // "Durchschnittliche Wortlänge"
-    QLabel* m_lblStopRatio = nullptr;     // "Verhältnis Stoppwörter/Nicht-Stoppwörter"
-
+    QLabel* m_lblAvgWordLen = nullptr;     // Average word length
+    QLabel* m_lblStopRatio = nullptr;      // Ratio of stop words/non-stop words
     QLabel* m_lblRuntime = nullptr;
 
-    // Result details (right, tabs)
+    // Result details
     QPlainTextEdit* m_topWordsBox = nullptr;
     QPlainTextEdit* m_topBigramsBox = nullptr;
     QPlainTextEdit* m_histBox = nullptr;
 
     QPushButton* m_exportButton = nullptr;
+
+    // Async analysis (QtConcurrent)
+    QFutureWatcher<AnalysisResult>* m_watcher = nullptr;
+    QElapsedTimer m_analysisTimer;
 
     // State
     QString m_lastFilePath;
@@ -89,4 +93,7 @@ private:
     void updateUiFromResult(const AnalysisResult& result, const QString& runtimeText);
 
     QString stopwordFilePath() const;
+
+    // Input checks
+    bool validateInputFile(const QString& path, QString* errorMessage) const;
 };

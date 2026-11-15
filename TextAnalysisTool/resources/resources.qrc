@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="stopwords/de.txt">stopwords/de.txt</file>
+    <file alias="stopwords/en.txt">stopwords/en.txt</file>
+  </qresource>
+</RCC>

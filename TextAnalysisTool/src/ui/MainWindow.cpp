@@ -22,7 +22,6 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QFileInfo>
-#include <QElapsedTimer>
 
 #include <QFile>
 #include <QTextStream>
@@ -37,6 +36,9 @@
 
 #include <QCoreApplication>
 
+#include <QtConcurrent/QtConcurrent>
+#include <memory>
+
 #include "application/AnalysisController.h"
 #include "analysis/StopWordManager.h"
 #include "analysis/StatisticCalculator.h"
@@ -46,12 +48,12 @@ static void applyDarkMockStyle(QWidget* root)
 {
     root->setObjectName("AppRoot");
 
-    // Dark UI similar to the mockup:
-    // - enforce light text color (fixes "black text" issues)
-    // - keep labels transparent (prevents background stripes behind text)
-    // - improve groupbox title rendering (title should not cut into the rounded panel)
-    // - fix combobox shape (rounded on both sides) + ensure dropdown arrow area matches
-    // - make progress bar corners truly rounded
+    // Dark UI:
+    // - enforce light text color
+    // - keep labels transparent
+    // - prevent groupbox titles from cutting into rounded borders
+    // - fix combobox rounding (including drop-down area)
+    // - make progress bar corners rounded
     root->setStyleSheet(R"(
         QWidget#AppRoot {
             background: #1f1f1f;
@@ -64,12 +66,10 @@ static void applyDarkMockStyle(QWidget* root)
             background: transparent;
         }
 
-        /* ----- GroupBox styling: titles should be clearly visible and not cut the panel ----- */
         QGroupBox {
             background: #2b2b2b;
             border: 1px solid #3a3a3a;
             border-radius: 14px;
-            /* provide extra room for the title so it doesn't overlap the border */
             margin-top: 18px;
             padding-top: 10px;
         }
@@ -81,7 +81,7 @@ static void applyDarkMockStyle(QWidget* root)
             padding: 0 8px;
             color: #ffffff;
             font-weight: 700;
-            background: #2b2b2b; /* paint behind title to avoid "cutting" the rounded border */
+            background: #2b2b2b;
         }
 
         QLineEdit, QPlainTextEdit, QComboBox, QSpinBox {
@@ -94,9 +94,8 @@ static void applyDarkMockStyle(QWidget* root)
         QLineEdit { padding: 6px 8px; border-radius: 8px; }
         QSpinBox { padding: 4px 6px; border-radius: 8px; }
 
-        /* ----- ComboBox: ensure full rounded corners (left + right), including arrow area ----- */
         QComboBox {
-            padding: 4px 30px 4px 8px; /* leave room for arrow button */
+            padding: 4px 30px 4px 8px;
             border-radius: 10px;
         }
         QComboBox::drop-down {
@@ -107,10 +106,6 @@ static void applyDarkMockStyle(QWidget* root)
             border-top-right-radius: 10px;
             border-bottom-right-radius: 10px;
             background: #1e1e1e;
-        }
-        QComboBox::down-arrow {
-            width: 10px;
-            height: 10px;
         }
 
         QPlainTextEdit { padding: 8px; }
@@ -146,19 +141,17 @@ static void applyDarkMockStyle(QWidget* root)
         }
         QPushButton#Primary:hover { background: #ff0000; }
 
-        /* ----- ProgressBar: rounded corners for both track and chunk ----- */
         QProgressBar {
             background: #2b2b2b;
             border: 1px solid #3a3a3a;
             border-radius: 10px;
-            padding: 1px; /* helps chunk rounding visually */
+            padding: 1px;
         }
         QProgressBar::chunk {
             background: #e00000;
             border-radius: 9px;
         }
 
-        /* Tabs: compact display instead of multiple large text boxes */
         QTabWidget::pane {
             border: 1px solid #3a3a3a;
             border-radius: 12px;
@@ -191,14 +184,26 @@ static QLabel* makeFieldLabel(const QString& text, QWidget* parent)
 
 // ---- CSV performance logging (outside debugger) ----------------------------
 
-static QString csvEscape(const QString& s)
+// Escapes a string for safe CSV output and hardens it against spreadsheet formula injection.
+// Fields starting with =, +, -, or @ are prefixed with a single quote.
+static QString csvEscapeAndHarden(const QString& s)
 {
-    // Escape quotes for CSV and wrap field in quotes
     QString out = s;
+    out.replace("\r", " ");
+    out.replace("\n", " ");
+
+    if (!out.isEmpty()) {
+        const QChar c = out.at(0);
+        if (c == '=' || c == '+' || c == '-' || c == '@') {
+            out.prepend('\'');
+        }
+    }
+
     out.replace("\"", "\"\"");
     return "\"" + out + "\"";
 }
 
+// Appends one performance measurement row to analysis_log.csv.
 static void appendPerformanceLogCsv(
     const QString& sourceFilePath,
     qint64 fileSizeBytes,
@@ -209,20 +214,19 @@ static void appendPerformanceLogCsv(
     const QString& stopwordLang
 )
 {
-    // Log file is stored next to the executable (outside the debugger output)
+    // Log file is stored next to the executable.
     const QString logPath = QCoreApplication::applicationDirPath() + "/analysis_log.csv";
     const bool fileExists = QFileInfo::exists(logPath);
 
     QFile f(logPath);
     if (!f.open(QIODevice::Append | QIODevice::Text)) {
-        // Intentionally silent: logging must never break the analysis workflow
+        // Logging must never break the analysis workflow.
         return;
     }
 
     QTextStream s(&f);
     s.setEncoding(QStringConverter::Utf8);
 
-    // Write header once
     if (!fileExists) {
         s << "timestamp,source_file,file_size_bytes,elapsed_ms,char_count,"
             "tokens_all,tokens_nonstop,unique_words,top_k,stopwords_enabled,stopword_lang\n";
@@ -230,8 +234,8 @@ static void appendPerformanceLogCsv(
 
     const QString ts = QDateTime::currentDateTime().toString(Qt::ISODate);
 
-    s << csvEscape(ts) << ","
-        << csvEscape(sourceFilePath) << ","
+    s << csvEscapeAndHarden(ts) << ","
+        << csvEscapeAndHarden(sourceFilePath) << ","
         << fileSizeBytes << ","
         << elapsedMs << ","
         << result.charCount() << ","
@@ -240,7 +244,7 @@ static void appendPerformanceLogCsv(
         << result.frequencies().size() << ","
         << topK << ","
         << (stopwordsEnabled ? 1 : 0) << ","
-        << csvEscape(stopwordLang)
+        << csvEscapeAndHarden(stopwordLang)
         << "\n";
 }
 
@@ -264,13 +268,12 @@ MainWindow::MainWindow(QWidget* parent)
     title->setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;");
     root->addWidget(title);
 
-    // Top row: file + parameters
+    // Top row: file selection area on the left, analysis parameters on the right.
     auto* topRow = new QHBoxLayout();
     topRow->setSpacing(14);
 
     // File selection
     auto* gbFile = new QGroupBox("Datei-Auswahl", central);
-    gbFile->setObjectName("GbFile");
     auto* fileLay = new QVBoxLayout(gbFile);
     fileLay->setSpacing(10);
 
@@ -283,9 +286,8 @@ MainWindow::MainWindow(QWidget* parent)
 
     m_filePathEdit = new QLineEdit(gbFile);
     m_filePathEdit->setPlaceholderText("Dateiname");
-    m_browseButton = new QPushButton("hochladen", gbFile);
 
-    // Keep the row aligned and avoid odd stretching
+    m_browseButton = new QPushButton("hochladen", gbFile);
     m_browseButton->setMinimumWidth(96);
 
     fileRow->addWidget(m_filePathEdit, 1);
@@ -311,13 +313,13 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Analysis parameters
     auto* gbParams = new QGroupBox("Analyseparameter", central);
-    gbParams->setObjectName("GbParams");
     auto* paramsLay = new QGridLayout(gbParams);
     paramsLay->setHorizontalSpacing(18);
     paramsLay->setVerticalSpacing(8);
     paramsLay->setColumnStretch(0, 1);
     paramsLay->setColumnStretch(1, 1);
 
+    // Checkboxes control which result sections are displayed after analysis.
     m_cbChars = new QCheckBox("Zeichenanzahl", gbParams);
     m_cbWords = new QCheckBox("Wortanzahl", gbParams);
     m_cbUnique = new QCheckBox(QString("unterschiedliche W\u00F6rter"), gbParams);
@@ -338,15 +340,13 @@ MainWindow::MainWindow(QWidget* parent)
     m_stopwordLang->addItem("Deutsch (de)");
     m_stopwordLang->addItem("English (en)");
     m_stopwordLang->setCurrentIndex(0);
-
-    // Ensure the combobox has enough width so text isn't clipped and rounded corners show
     m_stopwordLang->setMinimumWidth(140);
     m_stopwordLang->setSizeAdjustPolicy(QComboBox::AdjustToContents);
 
     m_analyzeButton = new QPushButton("analysieren", gbParams);
     m_analyzeButton->setObjectName("Primary");
 
-    // Default selections (like the mockup)
+    // Default selections
     m_cbChars->setChecked(true);
     m_cbWords->setChecked(true);
     m_cbUnique->setChecked(true);
@@ -403,8 +403,6 @@ MainWindow::MainWindow(QWidget* parent)
     m_progress->setValue(0);
     m_progress->setTextVisible(false);
     m_progress->setFixedHeight(16);
-
-    // Ensure rounded look is actually visible
     m_progress->setAttribute(Qt::WA_StyledBackground, true);
 
     progRow->addWidget(progLabel);
@@ -413,12 +411,10 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Result area
     auto* gbResult = new QGroupBox("Ergebnis", central);
-    gbResult->setObjectName("GbResult");
-
     auto* resultOuter = new QHBoxLayout(gbResult);
     resultOuter->setSpacing(18);
 
-    // Left: summary numbers (must match the visible UI parameters)
+    // Left: summary numbers
     auto* leftBox = new QWidget(gbResult);
     auto* form = new QFormLayout(leftBox);
     form->setLabelAlignment(Qt::AlignLeft);
@@ -436,11 +432,8 @@ MainWindow::MainWindow(QWidget* parent)
     form->addRow(makeFieldLabel("Zeichenanzahl:", leftBox), m_lblCharCount);
     form->addRow(makeFieldLabel("Wortanzahl:", leftBox), m_lblWordCount);
     form->addRow(makeFieldLabel(QString("unterschiedliche W\u00F6rter:"), leftBox), m_lblUniqueCount);
-
-    // IMPORTANT: match parameter names from the UI
     form->addRow(makeFieldLabel(QString("Durchschnittliche Wortl\u00E4nge:"), leftBox), m_lblAvgWordLen);
     form->addRow(makeFieldLabel(QString("Verh\u00E4ltnis Stoppw\u00F6rter/Nicht-Stoppw\u00F6rter:"), leftBox), m_lblStopRatio);
-
     form->addRow(makeFieldLabel("Laufzeit:", leftBox), m_lblRuntime);
 
     resultOuter->addWidget(leftBox, 1);
@@ -487,6 +480,43 @@ MainWindow::MainWindow(QWidget* parent)
     root->addWidget(gbResult);
     setCentralWidget(central);
 
+    // Async watcher (QtConcurrent)
+    m_watcher = new QFutureWatcher<AnalysisResult>(this);
+    connect(m_watcher, &QFutureWatcher<AnalysisResult>::finished, this, [this]() {
+        QApplication::restoreOverrideCursor();
+
+        m_progress->setRange(0, 100);
+        m_progress->setValue(100);
+        m_analyzeButton->setEnabled(true);
+        m_browseButton->setEnabled(true);
+        m_dropArea->setEnabled(true);
+
+        const AnalysisResult result = m_watcher->result();
+        const qint64 ms = m_analysisTimer.elapsed();
+
+        m_lastResult = result;
+        m_hasResult = true;
+
+        updateUiFromResult(m_lastResult, QString("%1 ms").arg(ms));
+        setResultsUiEnabled(true);
+
+        const QFileInfo fi(m_lastFilePath);
+        const qint64 fileSizeBytes = fi.exists() ? fi.size() : 0;
+
+        const bool stopwordsEnabled = m_cbStopwordsEnabled->isChecked();
+        const QString stopwordLang = (m_stopwordLang->currentIndex() == 1) ? "en" : "de";
+
+        appendPerformanceLogCsv(
+            m_lastFilePath,
+            fileSizeBytes,
+            ms,
+            m_lastResult,
+            m_topKSpin->value(),
+            stopwordsEnabled,
+            stopwordLang
+        );
+        });
+
     // Signals/slots
     connect(m_browseButton, &QPushButton::clicked, this, &MainWindow::onBrowseClicked);
     connect(m_analyzeButton, &QPushButton::clicked, this, &MainWindow::onAnalyzeClicked);
@@ -494,10 +524,47 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_saveButton, &QPushButton::clicked, this, &MainWindow::onSaveClicked);
     connect(m_loadButton, &QPushButton::clicked, this, &MainWindow::onLoadClicked);
 
+    // Start with an empty result view; only loading is allowed initially.
     resetResultsUi();
     setResultsUiEnabled(false);
 }
 
+bool MainWindow::validateInputFile(const QString& path, QString* errorMessage) const
+{
+    // Minimal hardening: ensure a readable .txt file and enforce the 50 MB project limit.
+    QFileInfo fi(path);
+
+    if (path.trimmed().isEmpty()) {
+        if (errorMessage) *errorMessage = "Bitte eine .txt-Datei auswählen.";
+        return false;
+    }
+    if (!fi.exists()) {
+        if (errorMessage) *errorMessage = "Die ausgewählte Datei existiert nicht.";
+        return false;
+    }
+    if (!fi.isFile()) {
+        if (errorMessage) *errorMessage = "Der Pfad zeigt nicht auf eine Datei.";
+        return false;
+    }
+    if (!fi.isReadable()) {
+        if (errorMessage) *errorMessage = "Die Datei ist nicht lesbar (Berechtigungen prüfen).";
+        return false;
+    }
+    if (fi.suffix().compare("txt", Qt::CaseInsensitive) != 0) {
+        if (errorMessage) *errorMessage = "Es werden aktuell nur .txt-Dateien unterstützt.";
+        return false;
+    }
+
+    constexpr qint64 MAX_BYTES = 50LL * 1024LL * 1024LL;
+    if (fi.size() > MAX_BYTES) {
+        if (errorMessage) *errorMessage = "Die Datei ist größer als 50 MB und wird im Projekt nicht unterstützt.";
+        return false;
+    }
+
+    return true;
+}
+
+// Clears the previous result so it is never shown next to a newly selected file.
 void MainWindow::setSelectedFile(const QString& path)
 {
     m_filePathEdit->setText(path);
@@ -525,21 +592,29 @@ void MainWindow::resetResultsUi()
 
 void MainWindow::setResultsUiEnabled(bool enabled)
 {
-    // "Load" should always be possible
+    // Load should always be possible.
     if (m_loadButton) m_loadButton->setEnabled(true);
 
-    // "Save" and "Export" only if a result exists
+    // Save and export only if a result exists.
     if (m_saveButton) m_saveButton->setEnabled(enabled);
     if (m_exportButton) m_exportButton->setEnabled(enabled);
 }
 
+// Qt resources are preferred, a filesystem fallback is kept for older setups.
 QString MainWindow::stopwordFilePath() const
 {
+    const QString res = (m_stopwordLang->currentIndex() == 1) ? ":/stopwords/en.txt" : ":/stopwords/de.txt";
+    QFile rf(res);
+    if (rf.exists()) {
+        return res;
+    }
+
     const QString base = QCoreApplication::applicationDirPath() + "/resources/stopwords/";
     const QString file = (m_stopwordLang->currentIndex() == 1) ? "en.txt" : "de.txt";
     return base + file;
 }
 
+// The output respects the currently active display checkboxes.
 void MainWindow::updateUiFromResult(const AnalysisResult& result, const QString& runtimeText)
 {
     StatisticCalculator calc(result);
@@ -548,12 +623,11 @@ void MainWindow::updateUiFromResult(const AnalysisResult& result, const QString&
     const int nonStopTokens = result.totalTokens();
     const int stopTokens = allTokens - nonStopTokens;
 
-    // Base values (respect the checkboxes)
+    // Base values (respect the checkboxes).
     m_lblCharCount->setText(m_cbChars->isChecked() ? QString::number(result.charCount()) : "-");
     m_lblWordCount->setText(m_cbWords->isChecked() ? QString::number(allTokens) : "-");
     m_lblUniqueCount->setText(m_cbUnique->isChecked() ? QString::number(calc.vocabularySize()) : "-");
 
-    // Average word length (UI shows only "Durchschnittliche Wortl�nge")
     if (m_cbAvgLen->isChecked()) {
         m_lblAvgWordLen->setText(QString::number(calc.averageWordLength(), 'f', 2));
     }
@@ -561,18 +635,16 @@ void MainWindow::updateUiFromResult(const AnalysisResult& result, const QString&
         m_lblAvgWordLen->setText("-");
     }
 
-    // Stop/non-stop ratio (UI shows only this ratio)
+    // Stop/non-stop ratio.
     if (m_cbStopRatio->isChecked() && allTokens > 0) {
         if (nonStopTokens > 0) {
             const double ratio = static_cast<double>(stopTokens) / static_cast<double>(nonStopTokens);
-            // Show numeric ratio plus counts for transparency
             m_lblStopRatio->setText(QString("%1 (%2/%3)")
                 .arg(QString::number(ratio, 'f', 3))
                 .arg(stopTokens)
                 .arg(nonStopTokens));
         }
         else {
-            // Edge case: all tokens are stopwords
             m_lblStopRatio->setText(QString("- (%1/%2)")
                 .arg(stopTokens)
                 .arg(nonStopTokens));
@@ -584,7 +656,7 @@ void MainWindow::updateUiFromResult(const AnalysisResult& result, const QString&
 
     m_lblRuntime->setText(runtimeText.isEmpty() ? "-" : runtimeText);
 
-    // Top-K content
+    // Top-K content.
     const int k = m_topKSpin->value();
 
     if (m_cbTopK->isChecked()) {
@@ -617,23 +689,21 @@ void MainWindow::updateUiFromResult(const AnalysisResult& result, const QString&
         m_topBigramsBox->setPlainText("-");
     }
 
-    // Word length histogram (1..20) is additional detail (not a checkbox parameter)
-    {
-        const auto& hist = result.wordLengthHistogram();
-        QStringList lines;
-        for (int len = 1; len <= 20; ++len) {
-            const int count = hist.value(len, 0);
-            if (count > 0) lines << QString("len %1: %2").arg(len).arg(count);
-        }
-        m_histBox->setPlainText(lines.isEmpty() ? "-" : lines.join('\n'));
+    // Word length histogram (1..20).
+    const auto& hist = result.wordLengthHistogram();
+    QStringList lines;
+    for (int len = 1; len <= 20; ++len) {
+        const int count = hist.value(len, 0);
+        if (count > 0) lines << QString("len %1: %2").arg(len).arg(count);
     }
+    m_histBox->setPlainText(lines.isEmpty() ? "-" : lines.join('\n'));
 }
 
 void MainWindow::onBrowseClicked()
 {
     const QString path = QFileDialog::getOpenFileName(
         this,
-        "Select a text file",
+        "Textdatei auswählen",
         QString(),
         "Text files (*.txt)"
     );
@@ -643,32 +713,40 @@ void MainWindow::onBrowseClicked()
 
 void MainWindow::onAnalyzeClicked()
 {
+    // Prevent starting a second analysis while one is already running.
+    if (m_watcher && m_watcher->isRunning()) {
+        return;
+    }
+
     const QString path = m_filePathEdit->text().trimmed();
-    if (path.isEmpty()) {
-        QMessageBox::information(this, "Hinweis", "Bitte eine .txt-Datei ausw\u00E4hlen.");
-        return;
-    }
-    if (!QFileInfo::exists(path)) {
-        QMessageBox::warning(this, "Fehler", "Die ausgew\u00E4hlte Datei existiert nicht.");
+    QString err;
+    if (!validateInputFile(path, &err)) {
+        QMessageBox::warning(this, "Hinweis", err);
         return;
     }
 
+    // Lock all inputs that could change m_lastFilePath/m_lastResult while the
+    // background job runs; the watcher's finished handler unlocks them again.
     m_analyzeButton->setEnabled(false);
+    m_browseButton->setEnabled(false);
+    m_dropArea->setEnabled(false);
+    setResultsUiEnabled(false);
+    m_loadButton->setEnabled(false);
     m_progress->setValue(0);
-
-    // Busy progress because analysis is currently synchronous
     m_progress->setRange(0, 0);
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    QCoreApplication::processEvents();
 
-    // Optional stopword list
-    StopWordManager stopWords;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+
+    // Stopwords: load in UI thread, keep alive via shared_ptr captured by the async job.
+    std::shared_ptr<StopWordManager> stopWordsShared;
     const StopWordManager* swPtr = nullptr;
 
     if (m_cbStopwordsEnabled->isChecked()) {
+        stopWordsShared = std::make_shared<StopWordManager>();
         const QString swPath = stopwordFilePath();
-        if (stopWords.loadFromFile(swPath)) {
-            swPtr = &stopWords;
+
+        if (stopWordsShared->loadFromFile(swPath)) {
+            swPtr = stopWordsShared.get();
         }
         else {
             QMessageBox::warning(
@@ -676,50 +754,21 @@ void MainWindow::onAnalyzeClicked()
                 "Warnung",
                 "Stoppwortliste konnte nicht geladen werden:\n" + swPath + "\n\nEs wird ohne Stoppwortfilter fortgesetzt."
             );
+            stopWordsShared.reset();
+            swPtr = nullptr;
         }
     }
 
-    // Run analysis and measure runtime
-    QElapsedTimer timer;
-    timer.start();
-
-    AnalysisController controller(swPtr);
-    const AnalysisResult result = controller.analyzeTxtFile(path);
-
-    const qint64 ms = timer.elapsed();
-
-    // Restore UI state
-    QApplication::restoreOverrideCursor();
-    m_progress->setRange(0, 100);
-    m_progress->setValue(100);
-    m_analyzeButton->setEnabled(true);
-
-    // Store result and update UI
     m_lastFilePath = path;
-    m_lastResult = result;
-    m_hasResult = true;
+    m_analysisTimer.restart();
 
-    updateUiFromResult(m_lastResult, QString("%1 ms").arg(ms));
-    setResultsUiEnabled(true);
+    const auto future = QtConcurrent::run([path, stopWordsShared, swPtr]() -> AnalysisResult {
+        Q_UNUSED(stopWordsShared);
+        AnalysisController controller(swPtr);
+        return controller.analyzeTxtFile(path);
+        });
 
-    // Append a CSV log line next to the executable (outside the debugger)
-    {
-        const QFileInfo fi(path);
-        const qint64 fileSizeBytes = fi.size();
-
-        const bool stopwordsEnabled = m_cbStopwordsEnabled->isChecked();
-        const QString stopwordLang = (m_stopwordLang->currentIndex() == 1) ? "en" : "de";
-
-        appendPerformanceLogCsv(
-            path,
-            fileSizeBytes,
-            ms,
-            m_lastResult,
-            m_topKSpin->value(),
-            stopwordsEnabled,
-            stopwordLang
-        );
-    }
+    m_watcher->setFuture(future);
 }
 
 void MainWindow::onExportClicked()
@@ -791,7 +840,6 @@ void MainWindow::onLoadClicked()
         return;
     }
 
-    // Apply loaded session
     m_lastFilePath = source;
     m_filePathEdit->setText(source);
     m_lastResult = loaded;
@@ -803,9 +851,10 @@ void MainWindow::onLoadClicked()
     QMessageBox::information(this, "Laden", "Session geladen:\n" + inPath);
 }
 
+// Only local .txt files are accepted.
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
-    // Drag & drop is only enabled inside the dedicated drop area
+    // Drag & drop is only enabled inside the dedicated drop area.
     if (watched == m_dropArea) {
         if (event->type() == QEvent::DragEnter) {
             auto* e = static_cast<QDragEnterEvent*>(event);

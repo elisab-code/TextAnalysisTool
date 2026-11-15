@@ -5,9 +5,8 @@ project(TextAnalysisToolApp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Concurrent Test)
 
-# Enables AUTOMOC/UIC/RCC and other recommended Qt settings
 qt_standard_project_setup()
 
 # ------------------------------------------------------------
@@ -55,6 +54,9 @@ qt_add_executable(TextAnalysisTool
     # export
     src/export/ResultExporter.cpp
     include/export/ResultExporter.h
+
+    # Qt resources (stopwords embedded)
+    resources/resources.qrc
 )
 
 target_include_directories(TextAnalysisTool PRIVATE
@@ -64,14 +66,15 @@ target_include_directories(TextAnalysisTool PRIVATE
 target_link_libraries(TextAnalysisTool PRIVATE
     Qt6::Core
     Qt6::Widgets
+    Qt6::Concurrent
 )
 
 target_compile_options(TextAnalysisTool PRIVATE
   $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
 )
 
-# Copy resources next to the executable so runtime stopword path works:
-# QCoreApplication::applicationDirPath() + "/resources/stopwords/de.txt"
+# Stopwords are embedded via resources.qrc. The copy next to the executable
+# is only a fallback, used by MainWindow::stopwordFilePath() if the resource is missing.
 add_custom_command(TARGET TextAnalysisTool POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/resources
@@ -86,7 +89,8 @@ enable_testing()
 qt_add_executable(TextAnalysisToolTests
     tests/TextAnalysisTests.cpp
 
-    # Reuse production sources needed for tests
+    # Production sources under test (no UI)
+
     src/application/AnalysisController.cpp
     include/application/AnalysisController.h
 
@@ -125,7 +129,6 @@ target_compile_options(TextAnalysisToolTests PRIVATE
   $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
 )
 
-# Copy required Qt runtime DLLs next to the test executable (Windows)
 add_custom_command(TARGET TextAnalysisToolTests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:Qt6::Core>
@@ -139,8 +142,6 @@ add_test(NAME TextAnalysisToolTests COMMAND TextAnalysisToolTests)
 
 # ------------------------------------------------------------
 # Test data generator (standalone tool)
-# NOTE: Your tests/TestDataGenerator.cpp has main() only if
-# TEXTANALYSIS_GENERATOR_MAIN is defined.
 # ------------------------------------------------------------
 qt_add_executable(TestDataGenerator
     tests/TestDataGenerator.cpp
@@ -158,10 +159,9 @@ target_compile_options(TestDataGenerator PRIVATE
   $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
 )
 
-# Enable the main() inside tests/TestDataGenerator.cpp
+# main() in TestDataGenerator.cpp is only compiled when this is defined.
 target_compile_definitions(TestDataGenerator PRIVATE TEXTANALYSIS_GENERATOR_MAIN)
 
-# Copy required Qt runtime DLL next to the generator executable (Windows)
 add_custom_command(TARGET TestDataGenerator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:Qt6::Core>
