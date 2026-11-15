@@ -6,7 +6,7 @@
 #include "analysis/StopWordManager.h"
 
 #include <QDebug>
-#include <QtGlobal> // qint64
+#include <QtGlobal>
 
 // StopWordManager is injected from outside
 AnalysisController::AnalysisController(const StopWordManager* stopWords)
@@ -43,8 +43,8 @@ AnalysisResult AnalysisController::analyzeTxtFile(const QString& path)
     while (!reader.atEnd()) {
         const QString line = reader.readLine();
 
-        // Character count: counts UTF-16 code units in QString lines.
-        // If you want to count newlines too, add +1 here (platform dependent).
+        // Character count: UTF-16 code units per line, line breaks excluded
+        // (keeps the value independent of CRLF vs. LF).
         charCount += line.size();
 
         const QStringList tokens = parser.parseLine(line);
@@ -53,7 +53,7 @@ AnalysisResult AnalysisController::analyzeTxtFile(const QString& path)
 
     reader.close();
 
-    // Copy result out so we can attach additional derived metadata (charCount)
+    // Copy result so we can attach additional derived metadata (charCount)
     AnalysisResult result = analyzer.result();
     result.setCharCount(charCount);
 

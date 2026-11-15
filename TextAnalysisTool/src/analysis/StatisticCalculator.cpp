@@ -13,6 +13,7 @@ StatisticCalculator::StatisticCalculator(const AnalysisResult& result)
 
 double StatisticCalculator::averageWordLength() const
 {
+    // Histogram: word length -> number of words with that length.
     const auto& hist = m_r.wordLengthHistogram();
 
     qint64 totalCount = 0;
@@ -30,11 +31,12 @@ double StatisticCalculator::averageWordLength() const
     return static_cast<double>(sumLen) / static_cast<double>(totalCount);
 }
 
+// Computes the median directly from the histogram instead of expanding it
+// into one entry per word, so memory stays O(distinct lengths).
 double StatisticCalculator::medianWordLength() const
 {
     const auto& hist = m_r.wordLengthHistogram();
 
-    // Convert to sortable vector (len, count)
     std::vector<std::pair<int, int>> items;
     items.reserve(static_cast<size_t>(hist.size()));
 
@@ -52,7 +54,8 @@ double StatisticCalculator::medianWordLength() const
     std::sort(items.begin(), items.end(),
         [](const auto& a, const auto& b) { return a.first < b.first; });
 
-    // 0-indexed median positions
+    // 0-based median positions. For odd counts mid1 == mid2,
+    // for even counts the median is the mean of both middle values.
     const qint64 mid1 = (totalCount - 1) / 2;
     const qint64 mid2 = totalCount / 2;
 
@@ -73,12 +76,13 @@ double StatisticCalculator::medianWordLength() const
     return (static_cast<double>(val1) + static_cast<double>(val2)) / 2.0;
 }
 
+// Share of content words: non-stop tokens / all tokens (incl. stopwords).
 double StatisticCalculator::lexicalDensity() const
 {
     const int all = m_r.totalTokensAll();
     if (all <= 0) return 0.0;
 
-    const int nonStop = m_r.totalTokens(); 
+    const int nonStop = m_r.totalTokens();
     return static_cast<double>(nonStop) / static_cast<double>(all);
 }
 
@@ -97,6 +101,8 @@ QVector<QPair<QString, int>> StatisticCalculator::topKBigrams(int k) const
     return topKFromHash(m_r.bigramFrequencies(), k);
 }
 
+// Top-k selection with a min-heap of size k: O(n log k) instead of sorting
+// the whole map (O(n log n)), which matters for large vocabularies.
 QVector<QPair<QString, int>> StatisticCalculator::topKFromHash(const QHash<QString, int>& map, int k)
 {
     QVector<QPair<QString, int>> out;
@@ -106,9 +112,11 @@ QVector<QPair<QString, int>> StatisticCalculator::topKFromHash(const QHash<QStri
         int count;
         QString key;
     };
+
+    // Smallest count on top, so it can be replaced by a more frequent entry.
     struct MinByCount {
         bool operator()(const Node& a, const Node& b) const {
-            return a.count > b.count; // min-heap by count
+            return a.count > b.count;
         }
     };
 

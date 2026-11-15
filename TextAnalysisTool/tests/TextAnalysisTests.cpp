@@ -12,12 +12,16 @@
 #include "analysis/StatisticCalculator.h"
 #include "export/ResultExporter.h"
 
+// QtTest-based test suite for the core text analysis functionality.
+// These tests cover tokenization, stopword handling, counting logic,
+// derived statistics, and export/import behavior.
 class TextAnalysisTests : public QObject
 {
     Q_OBJECT
 
 private:
     // Helper: write a UTF-8 text file inside a temporary directory.
+    // Returns the full path of the written file or an empty string on failure.
     static QString writeUtf8File(QTemporaryDir& dir, const QString& fileName, const QString& content)
     {
         const QString path = dir.path() + "/" + fileName;
@@ -36,21 +40,28 @@ private:
     }
 
 private slots:
+    // Tokenization tests
     void tokenization_basic();
     void tokenization_umlauts();
 
+    // Stopword loading and lookup
     void stopwords_load_and_lookup();
 
+    // End-to-end analysis tests
     void analysis_counts_no_stopwords();
     void analysis_counts_with_stopwords();
     void bigrams_across_line_boundaries();
 
+    // Derived metric validation
     void calculator_metrics();
 
+    // Export/import validation
     void exporter_json_roundtrip();
     void exporter_txt_report_created();
 };
 
+// Verifies that the parser lowercases tokens and preserves valid internal punctuation
+// such as apostrophes and hyphens.
 void TextAnalysisTests::tokenization_basic()
 {
     // Tokenizer should lowercase and keep internal apostrophes/hyphens
@@ -60,6 +71,8 @@ void TextAnalysisTests::tokenization_basic()
     QCOMPARE(tokens, expected);
 }
 
+// Verifies that Unicode letters such as German umlauts are tokenized correctly
+// and converted to lowercase.
 void TextAnalysisTests::tokenization_umlauts()
 {
     // Unicode letters should be tokenized and lowercased
@@ -70,6 +83,8 @@ void TextAnalysisTests::tokenization_umlauts()
     QCOMPARE(tokens, expected);
 }
 
+// Verifies loading of stopwords from a UTF-8 file, including comment handling,
+// trimming, lowercasing, and lookup behavior.
 void TextAnalysisTests::stopwords_load_and_lookup()
 {
     QTemporaryDir dir;
@@ -98,6 +113,8 @@ void TextAnalysisTests::stopwords_load_and_lookup()
     QVERIFY(!sw.isStopWord("Die"));
 }
 
+// Verifies token counts, word frequencies, bigrams, and character count
+// when no stopword filter is active.
 void TextAnalysisTests::analysis_counts_no_stopwords()
 {
     QTemporaryDir dir;
@@ -124,6 +141,8 @@ void TextAnalysisTests::analysis_counts_no_stopwords()
     QCOMPARE(r.charCount(), static_cast<qint64>(5));
 }
 
+// Verifies that stopwords are still counted in totalTokensAll(),
+// but excluded from the filtered token frequency map and derived bigrams.
 void TextAnalysisTests::analysis_counts_with_stopwords()
 {
     QTemporaryDir dir;
@@ -156,6 +175,7 @@ void TextAnalysisTests::analysis_counts_with_stopwords()
     QCOMPARE(r.charCount(), static_cast<qint64>(5));
 }
 
+// Verifies that bigrams are formed across line boundaries and not reset at each new line.
 void TextAnalysisTests::bigrams_across_line_boundaries()
 {
     QTemporaryDir dir;
@@ -178,6 +198,8 @@ void TextAnalysisTests::bigrams_across_line_boundaries()
     QCOMPARE(r.charCount(), static_cast<qint64>(4));
 }
 
+// Verifies derived statistics such as average word length, median word length,
+// lexical density, and vocabulary size using a small synthetic result object.
 void TextAnalysisTests::calculator_metrics()
 {
     // Build a small synthetic result to validate derived metrics
@@ -205,6 +227,8 @@ void TextAnalysisTests::calculator_metrics()
     QCOMPARE(calc.vocabularySize(), 2);
 }
 
+// Verifies that an AnalysisResult can be serialized to JSON and loaded back
+// without losing the essential analysis data.
 void TextAnalysisTests::exporter_json_roundtrip()
 {
     QTemporaryDir dir;
@@ -236,6 +260,8 @@ void TextAnalysisTests::exporter_json_roundtrip()
     QCOMPARE(loaded.frequencies().value("b", 0), 1);
 }
 
+// Verifies that a plain-text report file is created successfully
+// and contains expected section headers/content.
 void TextAnalysisTests::exporter_txt_report_created()
 {
     QTemporaryDir dir;
@@ -263,5 +289,6 @@ void TextAnalysisTests::exporter_txt_report_created()
     QVERIFY(content.contains("Zeichenanzahl"));
 }
 
+// Generates the test application's main function and executes all test slots above.
 QTEST_MAIN(TextAnalysisTests)
 #include "TextAnalysisTests.moc"

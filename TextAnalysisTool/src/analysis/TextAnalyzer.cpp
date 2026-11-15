@@ -34,7 +34,8 @@ void TextAnalyzer::consumeTokens(const QStringList& tokens)
             }
             m_prevNonStopToken = token;
         }
-        // Stopwords do not advance m_prevNonStopToken -> stopwords do not form bigrams.
+        // Stopwords do not advance m_prevNonStopToken, so "Haus und Garten"
+        // yields the bigram "haus garten" when stopword filtering is active.
     }
 }
 
