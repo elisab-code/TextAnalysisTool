@@ -24,11 +24,11 @@ an
 auf
 aus
 bei
-für
+fÃ¼r
 gegen
 ohne
 um
-über
+Ã¼ber
 unter
 vor
 nach
@@ -80,9 +80,9 @@ sind
 wurde
 werden
 kann
-können
+kÃ¶nnen
 muss
-müssen
+mÃ¼ssen
 soll
 sollen
 will

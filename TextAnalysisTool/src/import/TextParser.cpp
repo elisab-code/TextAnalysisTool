@@ -7,7 +7,7 @@ QStringList TextParser::parseLine(const QString& line) const
     const QString normalized = line.toLower();
 
     /* Extract tokens using a Unicode-aware pattern
-    *   \p{L} : any kind of letter (incl. äöüß)
+    *   \p{L} : any kind of letter (incl. Ã¤Ã¶Ã¼ÃŸ)
     *   \p{N} : numeric digits
     *   allow internal apostrophes or hyphens (e.g., "don't", "e-mail")
     */
