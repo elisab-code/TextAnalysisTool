@@ -43,8 +43,99 @@ src/
 └── export/        ResultExporter – TXT-Report, JSON speichern/laden
 ```
 
-Die UI-Schicht kennt nur den `AnalysisController`; Analyse- und Exportlogik sind ohne Oberfläche
-nutzbar und werden direkt in den Unit-Tests verwendet.
+```mermaid
+classDiagram
+    direction TB
+
+    class MainWindow {
+        -onBrowseClicked()
+        -onAnalyzeClicked()
+        -onExportClicked()
+        -onSaveClicked()
+        -onLoadClicked()
+        -validateInputFile(path) bool
+        -updateUiFromResult(result, runtime)
+    }
+
+    class AnalysisController {
+        +analyzeTxtFile(path) AnalysisResult
+    }
+
+    class TextFileReader {
+        +open(path) bool
+        +atEnd() bool
+        +readLine() QString
+        +close()
+    }
+
+    class TextParser {
+        +parseLine(line) QStringList
+    }
+
+    class TextAnalyzer {
+        -m_prevNonStopToken QString
+        +consumeTokens(tokens)
+        +result() AnalysisResult
+    }
+
+    class StopWordManager {
+        +loadFromFile(path) bool
+        +isStopWord(word) bool
+        +clear()
+    }
+
+    class AnalysisResult {
+        +kMaxUniqueTokens$ int
+        +kMaxUniqueBigrams$ int
+        +addRawToken(token)
+        +addToken(token)
+        +addBigram(a, b)
+        +addWordLength(len)
+        +frequencies() QHash
+        +bigramFrequencies() QHash
+        +wordLengthHistogram() QHash
+        +charCount() qint64
+    }
+
+    class StatisticCalculator {
+        +averageWordLength() double
+        +medianWordLength() double
+        +lexicalDensity() double
+        +vocabularySize() int
+        +topKWords(k) QVector
+        +topKBigrams(k) QVector
+    }
+
+    class ResultExporter {
+        +exportReportTxt(...)$ bool
+        +saveResultJson(...)$ bool
+        +loadResultJson(...)$ bool
+    }
+
+    MainWindow ..> AnalysisController : startet im Hintergrund
+    MainWindow ..> StopWordManager : lädt Liste
+    MainWindow ..> StatisticCalculator : Anzeige
+    MainWindow ..> ResultExporter : Export / Session
+    AnalysisController ..> TextFileReader : liest zeilenweise
+    AnalysisController ..> TextParser : tokenisiert
+    AnalysisController ..> TextAnalyzer : füttert Tokens
+    AnalysisController --> StopWordManager : optional
+    TextAnalyzer --> StopWordManager : optional
+    TextAnalyzer *-- AnalysisResult : baut auf
+    StatisticCalculator --> AnalysisResult : liest
+    ResultExporter ..> AnalysisResult : serialisiert
+    ResultExporter ..> StatisticCalculator : Kennzahlen
+```
+
+**Ablauf einer Analyse:** `MainWindow` prüft die Datei, lädt die Stoppwortliste und startet den
+`AnalysisController` über `QtConcurrent` in einem Hintergrund-Thread. Der Controller liest die Datei
+zeilenweise (`TextFileReader`), zerlegt jede Zeile in Tokens (`TextParser`) und übergibt sie an den
+`TextAnalyzer`, der das `AnalysisResult` inkrementell aufbaut. Abgeleitete Kennzahlen wie Median oder
+Top-K berechnet der `StatisticCalculator` erst bei Bedarf aus diesem Ergebnis.
+
+Alle Klassen unterhalb von `MainWindow` sind frei von UI-Code und werden direkt in den Unit-Tests
+verwendet. `TextImporter` und `TextDocument` sind einfache Hilfsklassen, die in der Analyse-Pipeline
+derzeit nicht verwendet werden.
 
 ## Performance
 
