@@ -14,6 +14,18 @@ static void setErr(QString* err, const QString& msg)
     if (err) *err = msg;
 }
 
+/**
+ * Writes a UTF-8 BOM to make sure common Windows editors
+ * reliably detect UTF-8 and display umlauts (Ã¤Ã¶Ã¼ÃŸ) correctly.
+ */
+static void writeUtf8BomIfNeeded(QFile& f)
+{
+    if (f.pos() == 0) {
+        const char bom[] = { char(0xEF), char(0xBB), char(0xBF) };
+        f.write(bom, 3);
+    }
+}
+
 bool ResultExporter::exportReportTxt(
     const QString& outPath,
     const QString& sourceFile,
@@ -24,10 +36,12 @@ bool ResultExporter::exportReportTxt(
 )
 {
     QFile f(outPath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
         setErr(error, "Konnte Datei nicht schreiben: " + outPath);
         return false;
     }
+
+    writeUtf8BomIfNeeded(f);
 
     QTextStream s(&f);
     s.setEncoding(QStringConverter::Utf8);
@@ -43,23 +57,24 @@ bool ResultExporter::exportReportTxt(
     s << "Kennzahlen\n";
     s << "Zeichenanzahl: " << result.charCount() << "\n";
     s << "Wortanzahl (alle Tokens): " << allTokens << "\n";
-    s << "Nicht-Stoppwörter: " << nonStop << "\n";
-    s << "Stoppwörter: " << stop << "\n";
-    s << "Unterschiedliche Wörter: " << calc.vocabularySize() << "\n";
-    s << "Ø Wortlänge: " << QString::number(calc.averageWordLength(), 'f', 2) << "\n";
-    s << "Median Wortlänge: " << QString::number(calc.medianWordLength(), 'f', 2) << "\n";
+    s << "Nicht-StoppwÃ¶rter: " << nonStop << "\n";
+    s << "StoppwÃ¶rter: " << stop << "\n";
+    s << "Unterschiedliche WÃ¶rter: " << calc.vocabularySize() << "\n";
+    s << "Ã˜ WortlÃ¤nge: " << QString::number(calc.averageWordLength(), 'f', 2) << "\n";
+    s << "Median WortlÃ¤nge: " << QString::number(calc.medianWordLength(), 'f', 2) << "\n";
     s << "Lexikalische Dichte: " << QString::number(calc.lexicalDensity(), 'f', 3) << "\n\n";
 
-    s << "Top-Wörter (K=" << topK << ")\n";
+    s << "Top-WÃ¶rter (K=" << topK << ")\n";
     for (const auto& p : calc.topKWords(topK)) {
         s << p.first << " : " << p.second << "\n";
     }
+
     s << "\nTop-Bigramme (K=" << topK << ")\n";
     for (const auto& p : calc.topKBigrams(topK)) {
         s << p.first << " : " << p.second << "\n";
     }
 
-    s << "\nWortlängen-Histogramm (1..20)\n";
+    s << "\nWortlÃ¤ngen-Histogramm (1..20)\n";
     const auto& hist = result.wordLengthHistogram();
     for (int len = 1; len <= 20; ++len) {
         const int c = hist.value(len, 0);
@@ -81,6 +96,7 @@ bool ResultExporter::saveResultJson(
     root["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
     root["sourceFile"] = sourceFile;
 
+    // JSON has no 64-bit integers; double is exact up to 2^53.
     root["charCount"] = static_cast<double>(result.charCount());
     root["totalTokensAll"] = result.totalTokensAll();
     root["totalTokensNonStop"] = result.totalTokens();
@@ -113,11 +129,12 @@ bool ResultExporter::saveResultJson(
     root["lengthHistogram"] = histArr;
 
     QFile f(outPath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
         setErr(error, "Konnte JSON nicht schreiben: " + outPath);
         return false;
     }
 
+    // QJsonDocument emits UTF-8.
     f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     return true;
 }
@@ -142,14 +159,14 @@ bool ResultExporter::loadResultJson(
 
     const auto doc = QJsonDocument::fromJson(f.readAll());
     if (!doc.isObject()) {
-        setErr(error, "Ungültiges JSON-Format.");
+        setErr(error, "UngÃ¼ltiges JSON-Format.");
         return false;
     }
 
     const QJsonObject root = doc.object();
     const int version = root.value("version").toInt();
     if (version != 1) {
-        setErr(error, "Nicht unterstützte Version: " + QString::number(version));
+        setErr(error, "Nicht unterstÃ¼tzte Version: " + QString::number(version));
         return false;
     }
 

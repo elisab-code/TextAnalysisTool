@@ -5,6 +5,13 @@
 
 class StatisticCalculator;
 
+/**
+ * Export/Import utilities for analysis results.
+ *
+ * - exportReportTxt(): export report (UTF-8)
+ * - saveResultJson(): persist results for later reuse
+ * - loadResultJson(): restore a previously saved session
+ */
 class ResultExporter
 {
 public:
